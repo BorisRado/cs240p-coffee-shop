@@ -10,7 +10,7 @@ Do not use this code for a real shop.
 Settings come from environment variables (all optional):
 
   COFFEE_PORT          port to listen on (default 80)
-  COFFEE_MANAGER_PIN   PIN for POST /admin/reset (unset: no admin endpoint)
+  COFFEE_ADMIN_PASSWORD  password for POST /admin/reset (unset: no admin)
   COFFEE_RACE_DELAY    seconds between the check and the use of a gift card
                        (default 0.3)
   COFFEE_API_KEYS      file with one "key name" pair per line; when set,
@@ -45,7 +45,7 @@ MAX_ORDERS = 10000             # keeps memory small on a public server
 MAX_BODY = 10000               # bytes
 
 PORT = int(os.environ.get("COFFEE_PORT", "80"))
-MANAGER_PIN = os.environ.get("COFFEE_MANAGER_PIN", "")
+ADMIN_PASSWORD = os.environ.get("COFFEE_ADMIN_PASSWORD", "")
 RACE_DELAY = float(os.environ.get("COFFEE_RACE_DELAY", "0.3"))
 RATE_LIMIT = int(os.environ.get("COFFEE_RATE_LIMIT", "0"))
 EXTRA_HEADERS = json.loads(os.environ.get("COFFEE_EXTRA_HEADERS", "{}"))
@@ -276,10 +276,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, {"menu": items})
 
     def admin_reset(self):
-        if not MANAGER_PIN:
+        if not ADMIN_PASSWORD:
             return self.error(404, "no admin on this shop")
-        if self.headers.get("X-Manager-Pin", "") != MANAGER_PIN:
-            return self.error(403, "wrong manager PIN")
+        if self.headers.get("X-Admin-Password", "") != ADMIN_PASSWORD:
+            return self.error(403, "wrong admin password")
         SHOP.reset()
         self.send(200, {"reset": True,
                         "message": "all orders and gift cards deleted"})

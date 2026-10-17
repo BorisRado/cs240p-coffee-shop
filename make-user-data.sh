@@ -3,7 +3,7 @@
 # Usage: ./make-user-data.sh v1.0 [github-owner]
 #
 # For TAs. Run it after you tag a release, and paste the output into the
-# Lab 3.1 handout (Step 2.5). The sums pin the exact files: if anyone
+# Lab 3.1 handout (Step 2.6). The sums pin the exact files: if anyone
 # changes them on GitHub, the server refuses to install them.
 set -euo pipefail
 TAG=${1:?usage: $0 TAG [OWNER]}
@@ -28,7 +28,7 @@ curl -fsSLO "\$REPO/coffee.service"
 sha256sum -c <<'SUMS'
 $SUMS
 SUMS
-echo "COFFEE_MANAGER_PIN=CHANGE-ME" > /etc/coffee.env
+echo "COFFEE_ADMIN_PASSWORD=CHANGE-ME" > /etc/coffee.env
 chmod 600 /etc/coffee.env
 cp coffee.service /etc/systemd/system/
 systemctl daemon-reload

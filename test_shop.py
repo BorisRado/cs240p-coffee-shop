@@ -62,11 +62,11 @@ class ShopProcess:
 
 
 class OpenShop(unittest.TestCase):
-    """The shop as students run it: no API keys, a manager PIN."""
+    """The shop as students run it: no API keys, an admin password."""
 
     @classmethod
     def setUpClass(cls):
-        cls.shop = ShopProcess(COFFEE_MANAGER_PIN="1234",
+        cls.shop = ShopProcess(COFFEE_ADMIN_PASSWORD="1234",
                                COFFEE_EXTRA_HEADERS='{"X-Clue": "beans"}')
 
     @classmethod
@@ -174,10 +174,10 @@ class OpenShop(unittest.TestCase):
         self.shop.call("POST", "/orders", {"drink": "espresso", "size": "S"})
         self.assertEqual(self.shop.call("POST", "/admin/reset")[0], 403)
         self.assertEqual(self.shop.call(
-            "POST", "/admin/reset", headers={"X-Manager-Pin": "0000"})[0],
+            "POST", "/admin/reset", headers={"X-Admin-Password": "0000"})[0],
             403)
         status, body, _ = self.shop.call(
-            "POST", "/admin/reset", headers={"X-Manager-Pin": "1234"})
+            "POST", "/admin/reset", headers={"X-Admin-Password": "1234"})
         self.assertEqual((status, body["reset"]), (200, True))
         self.assertEqual(self.shop.call("GET", "/orders")[1]["orders"], [])
 
@@ -187,12 +187,12 @@ class OpenShop(unittest.TestCase):
         self.assertGreater(int(r.getheader("Content-Length")), 0)
 
 
-class NoPin(unittest.TestCase):
-    def test_admin_is_off_without_a_pin(self):
+class NoPassword(unittest.TestCase):
+    def test_admin_is_off_without_a_password(self):
         shop = ShopProcess()
         try:
             self.assertEqual(shop.call(
-                "POST", "/admin/reset", headers={"X-Manager-Pin": ""})[0],
+                "POST", "/admin/reset", headers={"X-Admin-Password": ""})[0],
                 404)
         finally:
             shop.stop()

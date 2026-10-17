@@ -36,14 +36,14 @@ shop.
 | `POST` | `/giftcards` | A new gift card with 5.00 on it: 201 |
 | `GET` | `/giftcards/CODE` | The balance |
 | `POST` | `/giftcards/CODE/redeem` | `{"drink": "latte", "size": "M"}` gives 200, or 402 if the balance is too low |
-| `POST` | `/admin/reset` | Header `X-Manager-Pin`: deletes all orders and gift cards |
+| `POST` | `/admin/reset` | Header `X-Admin-Password`: deletes all orders and gift cards |
 
 ## Settings (environment variables, all optional)
 
 | Variable | Default | Meaning |
 |---|---|---|
 | `COFFEE_PORT` | `80` | Port |
-| `COFFEE_MANAGER_PIN` | unset | PIN for `/admin/reset`. Unset: no admin endpoint. |
+| `COFFEE_ADMIN_PASSWORD` | unset | Password for `/admin/reset`. Unset: no admin endpoint. |
 | `COFFEE_RACE_DELAY` | `0.3` | Seconds between the check and the use of a gift card |
 | `COFFEE_API_KEYS` | unset | File of `key name` lines. Set: `/orders` and `/giftcards` need `X-API-Key`, and each key sees its own orders. |
 | `COFFEE_RATE_LIMIT` | `0` | Requests per minute per client (0: no limit). Answers 429. |
@@ -77,7 +77,7 @@ COFFEE_PORT=8080
 COFFEE_API_KEYS=/etc/coffee-keys.txt
 COFFEE_RATE_LIMIT=120
 COFFEE_TRUST_PROXY=1
-COFFEE_MANAGER_PIN=<a long random value>
+COFFEE_ADMIN_PASSWORD=<a long random value>
 COFFEE_EXTRA_HEADERS={"X-Clue": "..."}
 ```
 
@@ -90,4 +90,3 @@ deployment's settings, never in the repository.
 (`git tag v1.1 && git push --tags`), run `./make-user-data.sh v1.1`, and
 paste the new user data into the Lab 3.1 handout. Never move a tag that
 students already use: their sums would stop matching.
-# -cs240p-coffee-shop
