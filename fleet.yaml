@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  CS 240P Lab 4.1, the coffee fleet: a load balancer in front of an Auto
+  Scaling group of 2 to 4 coffee shops (v1.2). Students add the scaling
+  policy by hand. Delete the stack at the end of the lab.
+
+# Deploy from CloudShell (Lab 4.1, Step 1.4):
+#   aws cloudformation deploy --stack-name coffee-fleet \
+#     --template-file fleet.yaml \
+#     --parameter-overrides VpcId=$VPC Subnets=$SUBNETS
+# It makes no IAM resources: the servers use the role coffee-shop-role
+# from Lab 3.1, so the stack needs no --capabilities.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: The default VPC
+  Subnets:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: The default subnets, one per Availability Zone
+  ImageId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: The latest Amazon Linux 2023, as in Lab 3.1
+
+Resources:
+  # Two firewalls (Day 3, slides 117-118): customers reach the load
+  # balancer; only the load balancer reaches the shops. No SSH anywhere.
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: coffee-fleet-lb
+      GroupDescription: Customers reach the load balancer on HTTP
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ShopSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: coffee-fleet-shops
+      GroupDescription: The shops accept HTTP only from the load balancer
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: coffee-fleet
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref Subnets
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+
+  # The health check starts slow on purpose: students make it faster in
+  # Step 3.4 and deeper (/health/deep) in Step 4.4.
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: coffee-shops
+      VpcId: !Ref VpcId
+      TargetType: instance
+      Protocol: HTTP
+      Port: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "10"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  # Every server is built the way Lab 3.1 built one: Amazon Linux 2023,
+  # t3.micro, the role, IMDSv2 only, and user data that installs the shop
+  # of one release tag and checks its SHA-256 sums. No secret in it.
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: coffee-shop
+      LaunchTemplateData:
+        ImageId: !Ref ImageId
+        InstanceType: t3.micro
+        IamInstanceProfile:
+          Name: coffee-shop-role
+        SecurityGroupIds:
+          - !Ref ShopSecurityGroup
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            # Coffee shop v1.2. cloud-init runs this once, as root, at first boot.
+            set -euxo pipefail
+            REPO=https://raw.githubusercontent.com/BorisRado/cs240p-coffee-shop/v1.2
+            mkdir -p /opt/coffee
+            cd /opt/coffee
+            curl -fsSLO --retry 3 "$REPO/shop.py"
+            curl -fsSLO --retry 3 "$REPO/coffee.service"
+            sha256sum -c <<'SUMS'
+            8e63eb089f22e528784cfb939a080043bb89675b2be4274384556edde5655cef  shop.py
+            c386d24adf4e41b21dbfca657f4963287431e696f4f581ced58178da25397ea4  coffee.service
+            SUMS
+            cat > /etc/coffee.env <<'ENV'
+            COFFEE_BREW_SECONDS=0.4
+            COFFEE_BARISTAS=2
+            COFFEE_QUEUE=5
+            ENV
+            cp coffee.service /etc/systemd/system/
+            systemctl daemon-reload
+            systemctl enable --now coffee
+
+  # 2 to 4 servers, spread over the zones. A server that fails the load
+  # balancer's health check is replaced (health check type ELB). No
+  # scaling policy: students add one by hand in Step 1.5.
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn: Listener
+    Properties:
+      AutoScalingGroupName: coffee-fleet
+      MinSize: "2"
+      DesiredCapacity: "2"
+      MaxSize: "4"
+      VPCZoneIdentifier: !Ref Subnets
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      TargetGroupARNs:
+        - !Ref TargetGroup
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 180
+      Tags:
+        - Key: Name
+          Value: coffee-fleet
+          PropagateAtLaunch: true
+
+Outputs:
+  ShopUrl:
+    Description: The address of your shop (Step 1.6)
+    Value: !Sub "http://${LoadBalancer.DNSName}"
+  TargetGroupArn:
+    Description: Used by monkey.py to find healthy servers
+    Value: !Ref TargetGroup

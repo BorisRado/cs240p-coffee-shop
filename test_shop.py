@@ -11,6 +11,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 
@@ -78,7 +79,8 @@ class OpenShop(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn(socket.gethostname(), body)
         self.assertIn("not on EC2", body)
-        self.assertEqual(r.getheader("Server"), "coffee-shop/1.0")
+        self.assertEqual(r.getheader("Server"), "coffee-shop/1.2")
+        self.assertIn("1.2", body)
 
     def test_health(self):
         self.assertEqual(self.shop.call("GET", "/health")[:2], (200, "OK\n"))
@@ -249,6 +251,203 @@ class KeyedShop(unittest.TestCase):
         other = {"X-Forwarded-For": "203.0.113.10"}
         self.assertEqual(self.shop.call("GET", "/health",
                                         headers=other)[0], 200)
+
+
+def fault_file(text):
+    """A fault switch file, as the monkey writes it on EC2."""
+    f = tempfile.NamedTemporaryFile("w", suffix=".fault", delete=False)
+    f.write(text)
+    f.close()
+    return f.name
+
+
+def at_once(n, fn):
+    """Run fn(i) for i in range(n) in threads that start together."""
+    results = [None] * n
+    start = threading.Barrier(n)
+
+    def run(i):
+        start.wait()
+        results[i] = fn(i)
+
+    threads = [threading.Thread(target=run, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    return results
+
+
+class ServedBy(unittest.TestCase):
+    """Lab 4.1: the scoreboard needs to know which server answered."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.shop = ShopProcess()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shop.stop()
+
+    def test_every_answer_names_the_server(self):
+        # Off EC2 there is no instance ID: hostname and port instead.
+        me = "%s:%d" % (socket.gethostname(), self.shop.port)
+        for method, path in [("GET", "/health"), ("GET", "/menu"),
+                             ("GET", "/nothing")]:
+            _, _, r = self.shop.call(method, path)
+            self.assertEqual(r.getheader("X-Served-By"), me, path)
+        _, _, r = self.shop.call("POST", "/orders", {"drink": "latte"})
+        self.assertEqual(r.getheader("X-Served-By"), me)
+
+    def test_deep_health_check(self):
+        self.assertEqual(self.shop.call("GET", "/health/deep")[:2],
+                         (200, "OK\n"))
+
+    def test_no_fault_file_means_no_fault(self):
+        status, body, _ = self.shop.call("POST", "/orders",
+                                         {"drink": "latte", "size": "M"})
+        self.assertEqual((status, body["price"]), (201, 4.5))
+
+
+class Liar(unittest.TestCase):
+    """Lab 4.1, incident 4: a server that charges the wrong price."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fault = fault_file("liar\n")
+        cls.shop = ShopProcess(COFFEE_FAULT_FILE=cls.fault)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shop.stop()
+        os.unlink(cls.fault)
+
+    def test_orders_cost_a_tenth(self):
+        status, body, _ = self.shop.call("POST", "/orders",
+                                         {"drink": "latte", "size": "M"})
+        self.assertEqual((status, body["price"]), (201, 0.45))
+
+    def test_menu_and_health_checks_look_fine(self):
+        _, body, _ = self.shop.call("GET", "/menu")
+        self.assertIn({"drink": "latte", "size": "M", "price": 4.5},
+                      body["menu"])
+        self.assertEqual(self.shop.call("GET", "/health")[:2], (200, "OK\n"))
+        self.assertEqual(self.shop.call("GET", "/health/deep")[:2],
+                         (200, "OK\n"))
+
+
+class Slow(unittest.TestCase):
+    """Lab 4.1, incident 2: orders are slow, /health is not."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.fault = fault_file("slow")
+        cls.shop = ShopProcess(COFFEE_FAULT_FILE=cls.fault,
+                               COFFEE_SLOW_SECONDS="0.5",
+                               COFFEE_BARISTAS="1",
+                               COFFEE_BREW_SECONDS="0.01")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shop.stop()
+        os.unlink(cls.fault)
+
+    def timed(self, method, path, body=None):
+        t = time.monotonic()
+        status = self.shop.call(method, path, body)[0]
+        return status, time.monotonic() - t
+
+    def test_orders_are_slow(self):
+        status, took = self.timed("POST", "/orders", {"drink": "latte"})
+        self.assertEqual(status, 201)
+        self.assertGreaterEqual(took, 0.5)
+
+    def test_health_is_fast_but_deep_health_is_slow(self):
+        status, took = self.timed("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertLess(took, 0.2)
+        status, took = self.timed("GET", "/health/deep")
+        self.assertEqual(status, 200)
+        self.assertGreaterEqual(took, 0.5)
+
+    def test_slowness_does_not_hold_a_barista(self):
+        # One barista, three slow orders at once: they wait side by side,
+        # so the slow server shows "slow", not "busy".
+        t = time.monotonic()
+        codes = at_once(3, lambda i: self.shop.call(
+            "POST", "/orders", {"drink": "latte"})[0])
+        self.assertEqual(codes, [201, 201, 201])
+        self.assertLess(time.monotonic() - t, 1.0)
+
+    def test_fault_file_is_read_on_every_request(self):
+        with open(self.fault, "w") as f:
+            f.write("")
+        try:
+            status, took = self.timed("POST", "/orders", {"drink": "latte"})
+            self.assertEqual(status, 201)
+            self.assertLess(took, 0.3)
+        finally:
+            with open(self.fault, "w") as f:
+                f.write("slow")
+
+
+class Baristas(unittest.TestCase):
+    """Lab 4.1, incident 3: a server makes a few coffees at a time, lets a
+    few customers wait, and sends the others away at once (load shedding,
+    Day 4 slide 52)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.shop = ShopProcess(COFFEE_BARISTAS="1",
+                               COFFEE_BREW_SECONDS="0.3",
+                               COFFEE_QUEUE="2")
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.shop.stop()
+
+    def test_full_shop_says_busy_at_once(self):
+        def order(i):
+            t = time.monotonic()
+            status, body, _ = self.shop.call("POST", "/orders",
+                                             {"drink": "latte"})
+            return status, body, time.monotonic() - t
+
+        results = at_once(6, order)
+        made = [r for r in results if r[0] == 201]
+        busy = [r for r in results if r[0] == 503]
+        # 1 being made + 2 waiting; the other 3 are sent away.
+        self.assertEqual((len(made), len(busy)), (3, 3), results)
+        for _, body, took in busy:
+            self.assertEqual(body["error"], "too busy, come back later")
+            self.assertLess(took, 0.2)
+
+    def test_deep_health_does_not_wait_in_line(self):
+        def call(i):
+            if i == 0:
+                time.sleep(0.05)      # the orders are in line first
+                t = time.monotonic()
+                status = self.shop.call("GET", "/health/deep")[0]
+                return status, time.monotonic() - t
+            return self.shop.call("POST", "/orders", {"drink": "latte"})[0]
+
+        results = at_once(4, call)
+        status, took = results[0]
+        self.assertEqual(status, 200)
+        self.assertLess(took, 0.2)
+
+
+class NoBrewing(unittest.TestCase):
+    """Without COFFEE_BREW_SECONDS, the shop behaves as in v1.1."""
+
+    def test_many_orders_at_once_are_all_made(self):
+        shop = ShopProcess()
+        try:
+            codes = at_once(20, lambda i: shop.call(
+                "POST", "/orders", {"drink": "karak", "size": "S"})[0])
+            self.assertEqual(codes, [201] * 20)
+        finally:
+            shop.stop()
 
 
 if __name__ == "__main__":

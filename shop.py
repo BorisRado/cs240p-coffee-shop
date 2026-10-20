@@ -18,6 +18,19 @@ Settings come from environment variables (all optional):
   COFFEE_RATE_LIMIT    requests per minute per client (default 0: no limit)
   COFFEE_EXTRA_HEADERS JSON object of headers added to every response
   COFFEE_TRUST_PROXY   "1": take the client address from X-Forwarded-For
+
+For the GameDay of Lab 4.1 (Day 4):
+
+  COFFEE_BREW_SECONDS  seconds to make one coffee (default 0: no brewing,
+                       no line, as in v1.1)
+  COFFEE_BARISTAS      coffees made at the same time (default 2)
+  COFFEE_QUEUE         customers who may wait in line; the next one gets
+                       503 "too busy, come back later" (default 5)
+  COFFEE_FAULT_FILE    the fault switch (default /etc/coffee-fault), read
+                       on every request: "slow" makes orders and
+                       /health/deep slow, "liar" charges a tenth of the
+                       price; missing or empty: no fault
+  COFFEE_SLOW_SECONDS  how slow "slow" is (default 3)
 """
 
 import json
@@ -31,7 +44,7 @@ import urllib.request
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.0"
+VERSION = "1.2"
 
 # Prices in cents, so that 4.50 - 4.50 is exactly 0.
 MENU = {
@@ -50,6 +63,11 @@ RACE_DELAY = float(os.environ.get("COFFEE_RACE_DELAY", "0.3"))
 RATE_LIMIT = int(os.environ.get("COFFEE_RATE_LIMIT", "0"))
 EXTRA_HEADERS = json.loads(os.environ.get("COFFEE_EXTRA_HEADERS", "{}"))
 TRUST_PROXY = os.environ.get("COFFEE_TRUST_PROXY", "") == "1"
+BREW_SECONDS = float(os.environ.get("COFFEE_BREW_SECONDS", "0"))
+BARISTAS = int(os.environ.get("COFFEE_BARISTAS", "2"))
+QUEUE = int(os.environ.get("COFFEE_QUEUE", "5"))
+FAULT_FILE = os.environ.get("COFFEE_FAULT_FILE", "/etc/coffee-fault")
+SLOW_SECONDS = float(os.environ.get("COFFEE_SLOW_SECONDS", "3"))
 
 
 def load_api_keys(path):
@@ -95,6 +113,47 @@ def money(cents):
     return round(cents / 100, 2)
 
 
+def fault():
+    """The fault that the monkey switched on (Lab 4.1), or ""."""
+    try:
+        with open(FAULT_FILE) as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
+
+def suffer(the_fault):
+    """What a fault does before any work starts. A slow server is slow
+    for everyone at once: it does not hold a barista while it waits."""
+    if the_fault == "slow":
+        time.sleep(SLOW_SECONDS)
+
+
+class Baristas:
+    """A few coffees at a time, and a short line (Day 4, slide 52)."""
+
+    def __init__(self, n, line):
+        self.lock = threading.Lock()
+        self.free = threading.Semaphore(n)
+        self.n = n
+        self.line = line
+        self.inside = 0                # being made + waiting in line
+
+    def enter(self):
+        """True if the customer may stay; False: the line is full."""
+        with self.lock:
+            if self.inside >= self.n + self.line:
+                return False
+            self.inside += 1
+        self.free.acquire()
+        return True
+
+    def leave(self):
+        self.free.release()
+        with self.lock:
+            self.inside -= 1
+
+
 class Shop:
     """All the shop's data, in memory."""
 
@@ -126,8 +185,16 @@ class Shop:
 
 
 SHOP = Shop()
+BARS = Baristas(BARISTAS, QUEUE)
 HOST = {"hostname": socket.gethostname(),
         "zone": "not on EC2", "instance_id": "not on EC2"}
+
+
+def served_by():
+    """Which server answered: the instance ID, or off EC2 host:port."""
+    if HOST["instance_id"] != "not on EC2":
+        return HOST["instance_id"]
+    return "%s:%d" % (HOST["hostname"], PORT)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -161,6 +228,7 @@ class Handler(BaseHTTPRequestHandler):
             # BUG (on purpose): no HttpOnly, no Secure, no SameSite (Day 2).
             self.send_header("Set-Cookie",
                              "session=" + secrets.token_hex(8) + "; Path=/")
+        self.send_header("X-Served-By", served_by())
         for name, value in EXTRA_HEADERS.items():
             self.send_header(name, value)
         for name, value in (headers or {}).items():
@@ -209,6 +277,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.home()
             if path == "/health" and method == "GET":
                 return self.send(200, "OK\n", "text/plain")
+            if path == "/health/deep" and method == "GET":
+                return self.deep_health()
             if path == "/menu" and method == "GET":
                 return self.menu()
             if path == "/admin/reset" and method == "POST":
@@ -270,6 +340,14 @@ class Handler(BaseHTTPRequestHandler):
            version=VERSION)
         self.send(200, page, "text/html")
 
+    def deep_health(self):
+        """Make a test coffee and throw it away: the same code as an
+        order, so it is as slow as an order. It skips the line, or every
+        server would fail this check during a rush."""
+        suffer(fault())
+        self.price_of({"drink": "latte"})
+        self.send(200, "OK\n", "text/plain")
+
     def menu(self):
         items = [{"drink": d, "size": s, "price": money(c)}
                  for d, sizes in MENU.items() for s, c in sizes.items()]
@@ -295,6 +373,17 @@ class Handler(BaseHTTPRequestHandler):
             # twice makes two orders (two clicks, two lattes; Day 2).
             body = self.read_json()
             drink, size, cents = self.price_of(body)
+            the_fault = fault()
+            if the_fault == "liar":
+                cents //= 10       # Byzantine: alive, fast and wrong
+            suffer(the_fault)
+            if BREW_SECONDS > 0:
+                if not BARS.enter():
+                    return self.error(503, "too busy, come back later")
+                try:
+                    time.sleep(BREW_SECONDS)
+                finally:
+                    BARS.leave()
             with SHOP.lock:
                 if len(SHOP.orders) >= MAX_ORDERS:
                     return self.error(503, "the shop is full; try later")
