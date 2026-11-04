@@ -75,6 +75,51 @@ class Lab6(unittest.TestCase):
         self.assertEqual(len(http("/orders?customer=emi")[1]["orders"]), 2)
         self.assertEqual(self.check()["Injection returns"].strip(), "0 rows")
 
+    def fix_menu(self, line):
+        path = os.path.join(self.dir, "orders.py")
+        lines = open(path).readlines()
+        n = lines.index("def find_drinks(db, word):\n") + 1
+        self.assertIn("FROM menu WHERE drink LIKE", lines[n])
+        lines[n] = line
+        open(path, "w").writelines(lines)
+        self.restart()
+
+    def test_menu_injection_and_fix(self):
+        attack = urllib.parse.urlencode({"search": "' OR 1=1 --"})
+        self.assertEqual(len(http("/menu?" + attack)[1]["menu"]), 5)
+        c = self.check()
+        self.assertEqual(c["Menu injection"].strip(), "5 rows")
+        self.assertEqual(c["Menu search lat"].strip(), "2 drinks")
+        # A half fix: safe, but the search finds nothing any more.
+        self.fix_menu('    return db.execute("SELECT * FROM menu'
+                      ' WHERE drink LIKE ?", (word,))\n')
+        c = self.check()
+        self.assertEqual(c["Menu injection"].strip(), "0 rows")
+        self.assertEqual(c["Menu search lat"].strip(), "0 drinks")
+        self.fix_menu('    return db.execute("SELECT * FROM menu'
+                      ' WHERE drink LIKE ?", ("%" + word + "%",))\n')
+        self.assertEqual(http("/menu?" + attack)[1]["menu"], [])
+        self.assertEqual(len(http("/menu?search=lat")[1]["menu"]), 2)
+        c = self.check()
+        self.assertEqual(c["Menu injection"].strip(), "0 rows")
+        self.assertEqual(c["Menu search lat"].strip(), "2 drinks")
+
+    def test_money_lost(self):
+        self.assertEqual(self.check()["Money lost"].strip(), "0")
+        proc = subprocess.Popen(
+            ["curl", "-s", "localhost:8000/orders", "-d", "customer=emi",
+             "-d", "drink=oat-latte", "-d", "pause=3"],
+            stdout=subprocess.PIPE)
+        time.sleep(1.5)
+        self.assertEqual(run("./stop.sh", "payments", cwd=self.dir).strip(),
+                         "Stopped: payments")
+        body = json.loads(proc.communicate()[0])
+        self.assertEqual(body["status"], "cancelled")
+        self.assertIn("compensation, payments: FAILED", body["saga"][2])
+        self.assertEqual(self.check()["Money lost"].strip(), "1")
+        self.restart()
+        self.assertEqual(self.check()["Money lost"].strip(), "1")
+
     def test_saga(self):
         status, body = http("/orders", {"customer": "emi", "drink": "latte"})
         self.assertEqual((status, body["status"]), (201, "done"))
@@ -138,6 +183,8 @@ class Lab6(unittest.TestCase):
         c = self.check()
         self.assertEqual(c["Services running"].strip(), "0")
         self.assertEqual(c["Injection returns"].strip(), "9 rows")
+        self.assertEqual(c["Menu injection"].strip(), "5 rows")
+        self.assertEqual(c["Money lost"].strip(), "0")
 
 
 if __name__ == "__main__":

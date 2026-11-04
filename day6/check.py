@@ -34,6 +34,33 @@ def injection():
     return "%d rows" % n
 
 
+def menu(word, unit):
+    """Runs the student's find_drinks (Step 2.5) with one search."""
+    try:
+        from orders import find_drinks
+        db = sqlite3.connect(os.path.join(service.HERE, "orders.db"))
+        n = len(find_drinks(db, word).fetchall())
+    except Exception as e:
+        return "error (%s)" % e.__class__.__name__
+    return "%d %s" % (n, unit)
+
+
+def lost():
+    """Charges with no order and no refund (Step 3.4)."""
+    paths = [os.path.join(service.HERE, n) for n in ("payments.db",
+                                                     "orders.db")]
+    if not all(os.path.exists(p) for p in paths):
+        return 0
+    db = sqlite3.connect(paths[0])
+    db.execute("ATTACH ? AS o", (paths[1],))
+    return db.execute(
+        "SELECT COUNT(*) FROM payments WHERE kind = 'charge'"
+        " AND order_ref NOT IN (SELECT order_ref FROM payments"
+        " WHERE kind = 'refund')"
+        " AND order_ref NOT IN (SELECT order_ref FROM o.orders)"
+    ).fetchone()[0]
+
+
 def refunds():
     path = os.path.join(service.HERE, "payments.db")
     if not os.path.exists(path):
@@ -62,7 +89,10 @@ def weak_secret():
 def main():
     print("Services running:   %d" % running())
     print("Injection returns:  %s" % injection())
+    print("Menu injection:     %s" % menu("' OR 1=1 --", "rows"))
+    print("Menu search lat:    %s" % menu("lat", "drinks"))
     print("Saga refunds:       %d" % refunds())
+    print("Money lost:         %d" % lost())
     print("Forged admin calls: %d" % forged())
     print("Secret in wordlist: %s" % weak_secret())
 

@@ -1,11 +1,14 @@
 #!/bin/bash
-# Stops the three services of Lab 6. The databases (*.db) stay.
+# Stops the services of Lab 6. The databases (*.db) stay.
+#   ./stop.sh            all three
+#   ./stop.sh payments   only payments (or stock, or orders)
 cd "$(dirname "$0")"
-for s in payments stock orders; do
+names=${*:-payments stock orders}
+for s in $names; do
   if [ -f logs/$s.pid ]; then
     kill "$(cat logs/$s.pid)" 2> /dev/null
     rm -f logs/$s.pid
   fi
 done
 sleep 0.5
-echo "Stopped: payments, stock, orders"
+echo "Stopped: $(echo $names | sed 's/ /, /g')"

@@ -24,7 +24,7 @@ shop.
 | `monkey.py` | Lab 4.1: breaks one server (or all) with Systems Manager Run Command. |
 | `make-user-data.sh` | For TAs: prints the EC2 user data of Lab 3.1 for a release tag, with the files' SHA-256 sums. |
 | `test_*.py` | Tests: `python3 -m unittest -v test_shop test_customers test_monkey test_fleet`. |
-| `day6/` | Lab 6 (Day 6, tag `day6-v1`): the order service (`orders.py`, port 8000), `payments.py` (8001) and `stock.py` (8002), each with its own SQLite file, run on `localhost` in CloudShell with `start.sh` and `stop.sh`. Bugs on purpose: SQL injection, a JWT secret from `wordlist.txt`, `alg none`. Also `peek.py`, `crack.py`, `forge.py` and the final check `check.py`. Tests: `cd day6 && python3 -m unittest -v test_day6` (ports 8000-8002 must be free). |
+| `day6/` | Lab 6 (Day 6, tag `day6-v2`): the order service (`orders.py`, port 8000), `payments.py` (8001) and `stock.py` (8002), each with its own SQLite file, run on `localhost` in CloudShell with `start.sh` and `stop.sh` (`./stop.sh payments` stops one). Bugs on purpose: SQL injection (in `find_orders` and `find_drinks`), a JWT secret from `wordlist.txt`, `alg none`. Also `peek.py`, `crack.py`, `forge.py` and the final check `check.py`. Tests: `cd day6 && python3 -m unittest -v test_day6` (ports 8000-8002 must be free). |
 
 ## The API
 

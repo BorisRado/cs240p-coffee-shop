@@ -32,6 +32,11 @@ def find_orders(db, name):
     return db.execute("SELECT * FROM orders WHERE customer = '" + name + "'")
 
 
+# BUG (on purpose): the same mistake, in a second place.
+def find_drinks(db, word):
+    return db.execute("SELECT * FROM menu WHERE drink LIKE '%" + word + "%'")
+
+
 TOKEN_MINUTES = 30
 MAX_PAUSE = 60
 PRICES = {"espresso": 300, "latte": 450, "cappuccino": 450,
@@ -142,12 +147,10 @@ class Orders(service.Handler):
                         "orders": [dict(r) for r in rows]})
 
     def menu(self):
-        db = service.connect("orders.db")
-        # BUG (on purpose): the same mistake, in a second place.
-        q = ("SELECT drink, price FROM menu WHERE drink LIKE '%"
-             + self.args.get("search", "") + "%'")
-        rows = db.execute(q).fetchall()
-        self.send(200, {"sql": q, "menu": [list(r) for r in rows]})
+        db = Recorder(service.connect("orders.db"))
+        rows = find_drinks(db, self.args.get("search", ""))
+        self.send(200, {"sql": db.sql, "params": db.params,
+                        "menu": [list(r) for r in rows]})
 
     def login(self):
         db = service.connect("orders.db")
