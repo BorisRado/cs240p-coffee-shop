@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# Lab 6 (day6/): made when the services run
+day6/*.db
+day6/logs/
+day6/admin.log
