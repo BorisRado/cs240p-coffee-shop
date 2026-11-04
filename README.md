@@ -24,6 +24,7 @@ shop.
 | `monkey.py` | Lab 4.1: breaks one server (or all) with Systems Manager Run Command. |
 | `make-user-data.sh` | For TAs: prints the EC2 user data of Lab 3.1 for a release tag, with the files' SHA-256 sums. |
 | `test_*.py` | Tests: `python3 -m unittest -v test_shop test_customers test_monkey test_fleet`. |
+| `day5/` | Lab 5 (Day 5, tag `day5-v1`): `make-data.py` makes one day of synthetic load-balancer logs (ALB format, 66 802 lines) and the loyalty files; `map.py` and `reduce.py` are the MapReduce job students run by hand (with `sort -k1,1` as the shuffle); `lake.py` and `queries.py` are a tiny DataFrame API in the style of Spark's structured API, reading `logs/` or an `s3://` folder; `kmeans.py` finds the odd clients out; `link.py` re-identifies the "anonymous" export with the public leaderboard, and `dp.py` answers counts with Laplace noise and a privacy budget. Standard library only; everything runs in CloudShell. |
 | `day6/` | Lab 6 (Day 6, tag `day6-v2`): the order service (`orders.py`, port 8000), `payments.py` (8001) and `stock.py` (8002), each with its own SQLite file, run on `localhost` in CloudShell with `start.sh` and `stop.sh` (`./stop.sh payments` stops one). Bugs on purpose: SQL injection (in `find_orders` and `find_drinks`), a JWT secret from `wordlist.txt`, `alg none`. Also `peek.py`, `crack.py`, `forge.py` and the final check `check.py`. Tests: `cd day6 && python3 -m unittest -v test_day6` (ports 8000-8002 must be free). |
 
 ## The API
