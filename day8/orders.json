@@ -1,0 +1,14 @@
+[
+  {"order": 1041, "customer": "emi", "phone": "+966 50 111 2041",
+   "address": "12 Olaya St, Riyadh", "card": "**** 4417", "drink": "latte"},
+  {"order": 1042, "customer": "sara", "phone": "+966 55 222 7120",
+   "address": "4 Tahlia St, Jeddah", "card": "**** 0932", "drink": "espresso"},
+  {"order": 1043, "customer": "omar", "phone": "+966 53 340 1188",
+   "address": "88 King Fahd Rd, Riyadh", "card": "**** 7781", "drink": "mint-tea"},
+  {"order": 1044, "customer": "layla", "phone": "+966 56 902 3345",
+   "address": "7 Prince Sultan St, Dammam", "card": "**** 2209", "drink": "oat-latte"},
+  {"order": 1045, "customer": "noura", "phone": "+966 50 477 6610",
+   "address": "31 Al Malqa, Riyadh", "card": "**** 5153", "drink": "cappuccino"},
+  {"order": 1046, "customer": "emi", "phone": "+966 50 111 2041",
+   "address": "12 Olaya St, Riyadh", "card": "**** 4417", "drink": "cappuccino"}
+]
