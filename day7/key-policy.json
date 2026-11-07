@@ -1,0 +1,23 @@
+{
+  "Version": "2012-10-17",
+  "Id": "coffee-orders-key",
+  "Statement": [
+    {
+      "Sid": "AdminManagesTheKey",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::ACCOUNT:root" },
+      "Action": "kms:*",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ShopMayUseTheKey",
+      "Effect": "Allow",
+      "Principal": { "AWS": "arn:aws:iam::ACCOUNT:role/coffee-app" },
+      "Action": [
+        "kms:Decrypt",
+        "kms:GenerateDataKey"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
